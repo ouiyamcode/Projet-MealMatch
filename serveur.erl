@@ -210,7 +210,6 @@ trouver_recommandation(State) ->
       )
   end.
 
-% Fallback min_by pour Erlang < 24
 min_by(Fun, [H|T]) ->
   min_by(Fun, T, H, Fun(H)).
 

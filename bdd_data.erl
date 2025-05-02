@@ -1,6 +1,6 @@
 -module(bdd_data).
 -export([init/0]).
--include("bdd.hrl").   % <<== Ajoute cette ligne
+-include("bdd.hrl").
 
 init() ->
   bdd:insert_recipe(#recipes{
