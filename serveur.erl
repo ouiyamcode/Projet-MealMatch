@@ -8,6 +8,7 @@ initial_state() ->
     allergies => [],
     scores_pos => [],
     scores_neg => [],
+    scores_neutres => [], % <-- NOUVEAU
     nb_interactions => 0,
     deja_connecte => false,
     plats_tries => [],
@@ -45,10 +46,13 @@ loop(State) ->
 envoyer_plat(State) ->
   TriedIds = [R#recipes.recipe_id || R <- maps:get(plats_tries, State)],
   AllRecettes = charger_recettes(),
-  Remaining = [R || R <- AllRecettes, not lists:member(R#recipes.recipe_id, TriedIds)],
+  Allergies = maps:get(allergies, State),
+  Remaining = [R || R <- AllRecettes,
+    not lists:member(R#recipes.recipe_id, TriedIds),
+    not contient_allergene(R, Allergies)],
   case Remaining of
     [] ->
-      io:format("Plus de plats à proposer !~n"),
+      io:format("Aucun plat ne correspond à vos préférences ou à vos restrictions alimentaires.~n"),
       case maps:get(scores_pos, State) of
         [] ->
           io:format("Aucune préférence enregistrée, pas de recommandation possible.~n");
@@ -116,12 +120,19 @@ parse_allergies(Input) ->
 
 % Lecture de la réaction utilisateur
 demander_reaction() ->
-  io:format("Que pensez-vous de ce plat ? ('aime' | 'aime_pas' | 'garder')~n"),
+  io:format("Que pensez-vous de ce plat ?~n"),
+  io:format(" [Entrée] = aime | 'p' = aime_pas | 'g' = garder~n"),
   Raw = io:get_line("Réponse: "),
-  Clean = string:lowercase(string:trim(Raw)),
-  case lists:last(Clean) of
-    $. -> lists:sublist(Clean, length(Clean) - 1);
-    _  -> Clean
+  Clean = string:trim(string:lowercase(Raw)),
+  case Clean of
+    "" -> "aime";
+    "a" -> "aime";
+    "p" -> "aime_pas";
+    "g" -> "garder";
+    "aime" -> "aime";
+    "aime_pas" -> "aime_pas";
+    "garder" -> "garder";
+    _ -> Clean
   end.
 
 % Mise à jour de l’état
@@ -149,6 +160,7 @@ maj_etat(State, Plat, Reponse) ->
       State#{
         scores_pos => maps:get(scores_pos, State),
         scores_neg => maps:get(scores_neg, State),
+        scores_neutres => [ScorePlat | maps:get(scores_neutres, State)],
         nb_interactions => NouvellesInteractions,
         plats_tries => NouveauxPlatsTries,
         recettes_aimees => [IdPlat | maps:get(recettes_aimees, State)]
@@ -159,15 +171,15 @@ maj_etat(State, Plat, Reponse) ->
 
 % Chargement des recettes
 charger_recettes() ->
-  lists:filtermap(
-    fun(Id) ->
-      case bdd:get_recipe(Id) of
-        {atomic, {ok, R}} -> {true, R};
-        _ -> false
-      end
-    end,
-    lists:seq(1, 6)
-  ).
+  {atomic, Recettes} = mnesia:transaction(
+    fun() ->
+      mnesia:match_object(#recipes{recipe_id = '_', nom = '_', ingredients = '_',
+        prix = '_', site_source = '_', score = '_',
+        alternatives = '_', avis_utilisateurs = '_',
+        norme_recette = '_'})
+    end),
+  Recettes.
+
 
 % Affichage d’un plat
 afficher_plat(#recipes{nom = Nom, score = Score}) ->
@@ -180,31 +192,41 @@ additionner_vecteurs([A|As], [B|Bs]) -> [A + B | additionner_vecteurs(As, Bs)].
 
 moyenne_vecteurs(Listes) ->
   case Listes of
-    [] -> [0,0,0];
+    [] -> lists:duplicate(15, 0);
     _ ->
       N = length(Listes),
-      Total = lists:foldl(fun additionner_vecteurs/2, [0,0,0], Listes),
+      Total = lists:foldl(fun additionner_vecteurs/2, lists:duplicate(15, 0), Listes),
       [X div N || X <- Total]
   end.
 
-distance([A1, A2, A3], [B1, B2, B3]) ->
-  math:sqrt(math:pow(A1 - B1, 2) + math:pow(A2 - B2, 2) + math:pow(A3 - B3, 2)).
+moyenne_ponderee(Pos, Neutre) ->
+  TotalListes = Pos ++ Neutre,
+  TotalPoids = length(Pos) + (length(Neutre) div 2), % pondération 0.5
+  case TotalListes of
+    [] -> lists:duplicate(15, 0);
+    _ ->
+      Total = lists:foldl(fun additionner_vecteurs/2, lists:duplicate(15, 0), Pos ++ Neutre),
+      [X div TotalPoids || X <- Total]
+  end.
 
 % Recommandation (plats non vus)
 trouver_recommandation(State) ->
-  Pos = moyenne_vecteurs(maps:get(scores_pos, State)),
+  Pos = moyenne_ponderee(maps:get(scores_pos, State), maps:get(scores_neutres, State)),
   Neg = moyenne_vecteurs(maps:get(scores_neg, State)),
   TriedIds = [P#recipes.recipe_id || P <- maps:get(plats_tries, State)],
-  Recettes = [R || R <- charger_recettes(), not lists:member(R#recipes.recipe_id, TriedIds)],
+  AimeesIds = maps:get(recettes_aimees, State),
+  Recettes = [R || R <- charger_recettes(),
+    not lists:member(R#recipes.recipe_id, TriedIds),
+    not lists:member(R#recipes.recipe_id, AimeesIds)],
   case Recettes of
     [] -> none;
     _ ->
       min_by(
         fun(Plat) ->
           Score = Plat#recipes.score,
-          DistancePos = distance(Score, Pos),
-          DistanceNeg = distance(Score, Neg),
-          DistancePos - DistanceNeg
+          SimPos = similarite_cosinus(Score, Pos),
+          SimNeg = similarite_cosinus(Score, Neg),
+          SimNeg - SimPos
         end,
         Recettes
       )
@@ -220,4 +242,17 @@ min_by(Fun, [H|T], Best, BestVal) ->
   case Val < BestVal of
     true -> min_by(Fun, T, H, Val);
     false -> min_by(Fun, T, Best, BestVal)
+  end.
+
+contient_allergene(#recipes{ingredients = Ingredients}, Allergies) ->
+  lists:any(fun(A) -> lists:member(A, Ingredients) end, Allergies).
+
+similarite_cosinus(V1, V2) ->
+  ProduitScalaire = lists:sum([A * B || {A, B} <- lists:zip(V1, V2)]),
+  NormeV1 = math:sqrt(lists:sum([A * A || A <- V1])),
+  NormeV2 = math:sqrt(lists:sum([B * B || B <- V2])),
+  case {NormeV1, NormeV2} of
+    {0.0, _} -> 0.0;
+    {_, 0.0} -> 0.0;
+    _ -> ProduitScalaire / (NormeV1 * NormeV2)
   end.

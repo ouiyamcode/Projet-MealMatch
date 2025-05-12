@@ -1,3 +1,12 @@
+%% === Définition fixe des critères utilisés dans les vecteurs de score ===
+%% Ordre : [Sucré, Salé, Épicé, Gras, Bœuf, Poulet, Porc, Agneau, Veau, Poisson, Fruits de mer, Végétarien, Vegan, Sans gluten, Sans lactose]
+-define(CRITERES_SCORE, [
+  sucre, sale, epice, gras,
+  viande_boeuf, viande_poulet, viande_porc, viande_agneau, viande_veau,
+  poisson, fruits_de_mer, vegetarien, vegan,
+  sans_gluten, sans_lactose
+]).
+
 %% === Record pour la table des utilisateurs ===
 -record(users, {
   user_id,
