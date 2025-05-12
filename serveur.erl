@@ -18,8 +18,91 @@ initial_state() ->
 % Lancement
 start() ->
   mnesia:start(),
-  State = initial_state(),
-  loop(State).
+  {ok, ListenSocket} = gen_tcp:listen(4040, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]),
+  io:format("✅ Serveur TCP en écoute sur le port 4040...~n"),
+  accept(ListenSocket).
+
+
+accept(ListenSocket) ->
+    {ok, Socket} = gen_tcp:accept(ListenSocket),
+    io:format("👤 Client connecté~n"),
+    spawn(fun() -> handle_client(Socket) end),
+    accept(ListenSocket). % continuer à écouter
+
+ handle_client(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+            UserId = binary_to_term(Bin),
+            io:format("🔐 Utilisateur reçu: ~p~n", [UserId]),
+            State = charger_ou_initialiser_utilisateur(UserId),
+            IsKnown = maps:get(deja_connecte, State),
+
+            % 1. Envoyer profil si déjà connu
+            % 2. Sinon, demander allergies
+            case IsKnown of
+                true ->
+                    gen_tcp:send(Socket, term_to_binary({profil, State})),
+                    FinalState = boucle_interactive(Socket, State);
+                false ->
+                    gen_tcp:send(Socket, term_to_binary({demande_allergies})),
+                    FinalState = boucle_interactive(Socket, State)
+            end,
+
+            sauvegarder_utilisateur(FinalState),
+            gen_tcp:close(Socket);
+
+        {error, closed} ->
+            io:format("❌ Client déconnecté.~n")
+    end.
+
+
+boucle_interactive(Socket, State) ->
+    case maps:get(deja_connecte, State) of
+        false ->
+            case gen_tcp:recv(Socket, 0) of
+                {ok, Bin} ->
+                    {allergies, Liste} = binary_to_term(Bin),
+                    NewState = State#{allergies => Liste, deja_connecte => true},
+                    io:format("✅ Allergies reçues du client : ~p~n", [Liste]),
+                    gen_tcp:send(Socket, term_to_binary({profil, NewState})),
+                    NewState;
+                {error, closed} ->
+                    io:format("❌ Client déconnecté.~n"),
+                    State
+            end;
+        true ->
+            % tu pourras ici plus tard envoyer un plat
+            State
+    end.
+
+
+
+charger_ou_initialiser_utilisateur(UserId) ->
+    F = fun() ->
+        case mnesia:read({users, UserId}) of
+            [User] ->
+                io:format("ℹ️ Utilisateur existant trouvé, chargement...~n"),
+                #{
+                    id => User#users.user_id,
+                    allergies => User#users.restrictions_alimentaires,
+                    scores_pos => [],
+                    scores_neg => [],
+                    scores_neutres => [],
+                    nb_interactions => 0,
+                    deja_connecte => true,
+                    plats_tries => [],
+                    alerte_faite => false,
+                    recettes_aimees => User#users.recettes_aimees
+                };
+            [] ->
+                io:format("👤 Nouvel utilisateur, état initialisé.~n"),
+                maps:put(id, UserId, initial_state())
+
+        end
+    end,
+    {atomic, Result} = mnesia:transaction(F),
+    Result.
+
 
 % Boucle principale
 loop(State) ->
@@ -108,19 +191,23 @@ afficher_recommandation(Plat) ->
 
 % Sauvegarde le profil utilisateur et affiche les plats gardés
 sauvegarder_utilisateur(State) ->
+  UserId = maps:get(id, State),
   User = #users{
-    user_id = <<"user1">>,
+    user_id = UserId,
     mdp = <<"">>,
     choix_repas = 1,
     restrictions_alimentaires = maps:get(allergies, State),
     recettes_aimees = maps:get(recettes_aimees, State),
     historique_recherches = [],
-    score_global = 0,
-    norme_utilisateur = 0.0
+    score_global = calculer_score_global(State),
+    norme_utilisateur = calculer_norme_utilisateur(State)
   },
   bdd:insert_user(User),
-  io:format("Profil sauvegardé avec ~p plats gardés !~n", [length(User#users.recettes_aimees)]),
+  io:format("💾 Profil sauvegardé pour ~p avec ~p plats gardés !~n", [
+    UserId, length(User#users.recettes_aimees)
+  ]),
   afficher_recettes_aimees(User#users.recettes_aimees).
+
 
 % Affiche les plats gardés
 afficher_recettes_aimees([]) ->
@@ -283,3 +370,25 @@ similarite_cosinus(V1, V2) ->
     {_, 0.0} -> 0.0;
     _ -> ProduitScalaire / (NormeV1 * NormeV2)
   end.
+calculer_score_global(State) ->
+  length(maps:get(recettes_aimees, State)).
+
+calculer_norme_utilisateur(State) ->
+  Scores = moyenne_ponderee(
+    maps:get(scores_pos, State),
+    maps:get(scores_neutres, State)
+  ),
+  math:sqrt(lists:sum([X * X || X <- Scores])).
+
+%% afficher_profil_utilisateur(State) ->
+%%   Id = maps:get(id, State),
+%%   Allergies = maps:get(allergies, State),
+%%   NbLikes = length(maps:get(recettes_aimees, State)),
+%%   Score = calculer_score_global(State),
+%%   Norme = calculer_norme_utilisateur(State),
+%%   io:format("~n===== Profil utilisateur (~p) =====~n", [Id]),
+%%   io:format("🥗 Allergies         : ~p~n", [Allergies]),
+%%   io:format("❤️ Recettes aimées  : ~p~n", [NbLikes]),
+%%   io:format("📊 Score global     : ~p~n", [Score]),
+%%   io:format("📐 Norme utilisateur: ~.2f~n", [Norme]),
+%%   io:format("==================================~n~n").
