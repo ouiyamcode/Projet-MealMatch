@@ -12,6 +12,7 @@ initial_state() ->
     nb_interactions => 0,
     deja_connecte => false,
     plats_tries => [],
+    alerte_faite => false,
     recettes_aimees => []}.
 
 % Lancement
@@ -28,7 +29,16 @@ loop(State) ->
       Recommande = trouver_recommandation(State),
       afficher_recommandation(Recommande),
       sauvegarder_utilisateur(State),
-      ok;
+      io:format("Souhaitez-vous continuer ? (o pour oui, autre chose pour quitter)~n"),
+      Continue = string:trim(io:get_line("Votre choix: ")),
+      case Continue of
+        "o" ->
+          % Redémarre avec nb_interactions = 0 mais conserve les préférences
+          loop(State#{nb_interactions => 0});
+        _ ->
+          io:format("Session terminée.~n"),
+          ok
+      end;
     _ ->
       case maps:get(deja_connecte, State) of
         false ->
@@ -61,16 +71,33 @@ envoyer_plat(State) ->
           afficher_recommandation(Recommande)
       end,
       sauvegarder_utilisateur(State),
+      io:format("Session terminée : plus aucun plat ne peut être proposé.~n"),
       ok;
+
     _ ->
-      rand:seed(exsplus, {erlang:monotonic_time(), erlang:unique_integer(), erlang:phash2(self())}),
-      Index = rand:uniform(length(Remaining)),
-      Plat = lists:nth(Index, Remaining),
-      afficher_plat(Plat),
-      Reponse = demander_reaction(),
-      NouveauState = maj_etat(State, Plat, Reponse),
-      loop(NouveauState)
+      AlerteDejaFaite = maps:get(alerte_faite, State),
+      case {length(Remaining), AlerteDejaFaite} of
+        {N, false} when N =< 5 ->
+          io:format("⚠️  Il ne reste que ~p plats disponibles.~n", [N]),
+          io:format("Voici une recommandation anticipée :~n"),
+          Recommande = trouver_recommandation(State),
+          afficher_recommandation(Recommande),
+          envoyer_et_reagir(Remaining, State#{alerte_faite => true});
+        _ ->
+          envoyer_et_reagir(Remaining, State)
+      end
   end.
+
+
+envoyer_et_reagir(Remaining, State) ->
+  rand:seed(exsplus, {erlang:monotonic_time(), erlang:unique_integer(), erlang:phash2(self())}),
+  Index = rand:uniform(length(Remaining)),
+  Plat = lists:nth(Index, Remaining),
+  afficher_plat(Plat),
+  Reponse = demander_reaction(),
+  NouveauState = maj_etat(State, Plat, Reponse),
+  loop(NouveauState).
+
 
 % Affiche une recommandation si trouvée
 afficher_recommandation(none) ->
