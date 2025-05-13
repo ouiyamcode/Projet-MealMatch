@@ -61,8 +61,18 @@ boucle(Socket, State) ->
           Reco = trouver_recommandation(State),
           gen_tcp:send(Socket, term_to_binary({recommandation, Reco})),
           sauvegarder_utilisateur(State),
-          gen_tcp:send(Socket, term_to_binary({fin})),
-          ok;
+          gen_tcp:send(Socket, term_to_binary({continuer_choix})),
+          case gen_tcp:recv(Socket, 0) of
+            {ok, Bin2} ->
+              case binary_to_term(Bin2) of
+                continuer ->
+                  boucle(Socket, State#{nb_interactions => 0});
+                _ ->
+                  gen_tcp:send(Socket, term_to_binary({fin})),
+                  ok
+              end;
+            {error, closed} -> ok
+          end;
         _ ->
           envoyer_plat(Socket, State)
       end
@@ -77,12 +87,22 @@ envoyer_plat(Socket, State) ->
       gen_tcp:send(Socket, term_to_binary({fin})),
       sauvegarder_utilisateur(State);
     _ ->
-      rand:seed(exsplus, {erlang:monotonic_time(), erlang:unique_integer(), erlang:phash2(self())}),
-      Index = rand:uniform(length(Recettes)),
-      Plat = lists:nth(Index, Recettes),
-      gen_tcp:send(Socket, term_to_binary({plat, Plat})),
-      recevoir_reaction(Socket, State, Plat)
+      AlerteFaite = maps:get(alerte_faite, State),
+      if
+        length(Recettes) =< 5 andalso AlerteFaite =:= false ->
+          gen_tcp:send(Socket, term_to_binary({alerte_5, length(Recettes)})),
+          Reco = trouver_recommandation(State),
+          gen_tcp:send(Socket, term_to_binary({recommandation, Reco})),
+          envoyer_plat(Socket, State#{alerte_faite => true});
+        true ->
+          rand:seed(exsplus, {erlang:monotonic_time(), erlang:unique_integer(), erlang:phash2(self())}),
+          Index = rand:uniform(length(Recettes)),
+          Plat = lists:nth(Index, Recettes),
+          gen_tcp:send(Socket, term_to_binary({plat, Plat})),
+          recevoir_reaction(Socket, State, Plat)
+      end
   end.
+
 
 recevoir_reaction(Socket, State, Plat) ->
   case gen_tcp:recv(Socket, 0) of

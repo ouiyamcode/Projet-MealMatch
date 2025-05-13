@@ -35,22 +35,42 @@ boucle(Socket) ->
 
 traiter_msg(Socket, {profil, State}) ->
     afficher_profil(State);
+
 traiter_msg(Socket, {demande_allergies}) ->
     Allergies = demander_allergies(),
     gen_tcp:send(Socket, term_to_binary({allergies, Allergies}));
+
 traiter_msg(Socket, {plat, Plat}) ->
     afficher_plat(Plat),
     Reponse = demander_reaction(),
     gen_tcp:send(Socket, term_to_binary({reaction, Reponse}));
+
 traiter_msg(_, {recommandation, none}) ->
     io:format("🔍 Aucune recommandation disponible.~n");
+
 traiter_msg(_, {recommandation, #recipes{nom = Nom, score = Score}}) ->
     io:format("🎯 Recommandation finale : ~s avec score ~p~n", [Nom, Score]);
+
+traiter_msg(_, {alerte_5, N}) ->
+    io:format("⚠️  Attention : il ne reste que ~p plats disponibles.~n", [N]);
+
+traiter_msg(Socket, {continuer_choix}) ->
+    Reponse = io:get_line("Souhaitez-vous continuer ? (o/n): "),
+    Clean = string:trim(string:lowercase(Reponse)),
+    Msg = case Clean of
+              "o" -> continuer;
+              _ -> stop
+          end,
+    gen_tcp:send(Socket, term_to_binary(Msg));
+
 traiter_msg(_, {fin}) ->
     io:format("🛑 Session terminée.~n"),
     halt();
+
 traiter_msg(_, Autre) ->
     io:format("❓ Message inconnu : ~p~n", [Autre]).
+
+
 
 demander_allergies() ->
     Ligne = io:get_line("Avez-vous des allergies ? (ex: gluten, arachides): "),
