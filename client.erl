@@ -139,8 +139,14 @@ demander_reaction() ->
 afficher_profil(State) ->
     Id = maps:get(id, State),
     Allergies = maps:get(allergies, State),
-    Aimees = maps:get(recettes_aimees, State),
+    AimeesIds = maps:get(recettes_aimees, State),
+    Noms = maps:get(noms_recettes_aimees, State, []),
+
     io:format("~n===== Profil utilisateur (~p) =====~n", [Id]),
     io:format("🥗 Allergies         : ~p~n", [Allergies]),
-    io:format("❤️ Recettes aimées  : ~p~n", [Aimees]),
+    io:format("🧾 Recettes aimées (IDs) : ~p~n", [AimeesIds]),
+    io:format("❤️ Recettes aimées  : ~p~n", [Noms]),
     io:format("==================================~n~n").
+
+
+

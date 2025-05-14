@@ -36,7 +36,8 @@ handle_client(Socket) ->
       State = charger_ou_initialiser_utilisateur(UserId),
       case maps:get(deja_connecte, State) of
         true ->
-          gen_tcp:send(Socket, term_to_binary({profil, State})),
+          Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
+          gen_tcp:send(Socket, term_to_binary({profil, State#{noms_recettes_aimees => Noms}})),
           boucle(Socket, State);
         false ->
           gen_tcp:send(Socket, term_to_binary({demande_allergies})),
@@ -45,6 +46,7 @@ handle_client(Socket) ->
     {error, closed} ->
       ok
   end.
+
 
 boucle(Socket, State) ->
   case maps:get(deja_connecte, State) of
@@ -83,8 +85,12 @@ boucle(Socket, State) ->
 
 envoyer_plat(Socket, State) ->
   Tried = [R#recipes.recipe_id || R <- maps:get(plats_tries, State)],
+  Aimees = maps:get(recettes_aimees, State),
   Allergies = maps:get(allergies, State),
-  Recettes = [R || R <- charger_recettes(), not lists:member(R#recipes.recipe_id, Tried), not contient_allergene(R, Allergies)],
+  Recettes = [R || R <- charger_recettes(),
+    not lists:member(R#recipes.recipe_id, Tried),
+    not lists:member(R#recipes.recipe_id, Aimees),
+    not contient_allergene(R, Allergies)],
   case Recettes of
     [] ->
       gen_tcp:send(Socket, term_to_binary({fin})),
@@ -107,11 +113,13 @@ envoyer_plat(Socket, State) ->
   end.
 
 
+
 recevoir_reaction(Socket, State, Plat) ->
   case gen_tcp:recv(Socket, 0) of
     {ok, Bin} ->
       {reaction, Rep} = binary_to_term(Bin),
       Nouveau = maj_etat(State, Plat, Rep),
+      sauvegarder_utilisateur(Nouveau), %% <-- AJOUT ICI
       boucle(Socket, Nouveau);
     {error, closed} ->
       ok
@@ -132,7 +140,7 @@ charger_ou_initialiser_utilisateur(UserId) ->
           deja_connecte => true,
           plats_tries => [],
           alerte_faite => false,
-          recettes_aimees => User#users.recettes_aimees
+          recettes_aimees => User#users.recettes_aimees %% ✅ on garde ce champ
         };
       [] ->
         initial_state(UserId)
@@ -171,6 +179,7 @@ maj_etat(State, Plat, Reponse) ->
         nb_interactions => N,
         plats_tries => Tried};
     "garder" ->
+      io:format("✅ Recette gardée : ~p~n", [Id]),
       State#{scores_neutres => [Score | maps:get(scores_neutres, State)],
         recettes_aimees => [Id | maps:get(recettes_aimees, State)],
         nb_interactions => N,
@@ -180,6 +189,7 @@ maj_etat(State, Plat, Reponse) ->
 
 %% === Sauvegarde utilisateur ===
 sauvegarder_utilisateur(State) ->
+  io:format("💾 Sauvegarde utilisateur ~p, aimees = ~p~n", [maps:get(id, State), maps:get(recettes_aimees, State)]),
   Id = maps:get(id, State),
   User = #users{
     user_id = Id,
@@ -199,16 +209,30 @@ trouver_recommandation(State) ->
   Neg = moyenne_vecteurs(maps:get(scores_neg, State)),
   Tried = [P#recipes.recipe_id || P <- maps:get(plats_tries, State)],
   Aimees = maps:get(recettes_aimees, State),
-  Recs = [R || R <- charger_recettes(), not lists:member(R#recipes.recipe_id, Tried), not lists:member(R#recipes.recipe_id, Aimees)],
-  case Recs of
+  Candidats = [R || R <- charger_recettes(),
+    not lists:member(R#recipes.recipe_id, Tried),
+    not lists:member(R#recipes.recipe_id, Aimees)],
+  Alpha = 1.5,
+  Beta = 1.0,
+  case Candidats of
     [] -> none;
     _ ->
-      min_by(fun(Plat) ->
+      max_by(fun(Plat) ->
         Score = Plat#recipes.score,
         SimPos = similarite_cosinus(Score, Pos),
         SimNeg = similarite_cosinus(Score, Neg),
-        SimNeg - SimPos
-             end, Recs)
+        Alpha * SimPos - Beta * SimNeg
+             end, Candidats)
+  end.
+
+%% === max_by utilitaire ===
+max_by(F, [H|T]) -> max_by(F, T, H, F(H)).
+max_by(_, [], Best, _) -> Best;
+max_by(F, [H|T], Best, ValBest) ->
+  Val = F(H),
+  case Val > ValBest of
+    true -> max_by(F, T, H, Val);
+    false -> max_by(F, T, Best, ValBest)
   end.
 
 %% === Utilitaires math ===
@@ -250,13 +274,11 @@ similarite_cosinus(V1, V2) ->
     _ -> Produit / (Norm1 * Norm2)
   end.
 
-min_by(F, [H|T]) ->
-  min_by(F, T, H, F(H)).
-
-min_by(_, [], Best, _) -> Best;
-min_by(F, [H|T], Best, ValBest) ->
-  Val = F(H),
-  case Val < ValBest of
-    true -> min_by(F, T, H, Val);
-    false -> min_by(F, T, Best, ValBest)
+recuperer_noms_recettes([]) -> [];
+recuperer_noms_recettes([Id | Reste]) ->
+  case bdd:get_recipe(Id) of
+    {atomic, {ok, Rec}} ->
+      [Rec#recipes.nom | recuperer_noms_recettes(Reste)];
+    _ ->
+      recuperer_noms_recettes(Reste)
   end.
