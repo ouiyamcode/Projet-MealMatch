@@ -3,7 +3,7 @@
 -include("bdd.hrl").
 
 start() ->
-    {ok, Socket} = gen_tcp:connect("localhost", 4040, [binary, {packet, 0}, {active, false}]),
+    {ok, Socket} = gen_tcp:connect("172.16.200.201", 4040, [binary, {packet, 0}, {active, false}]),
     io:format("✅ Connecté au serveur TCP~n"),
     UserId = demander_identifiant(),
     gen_tcp:send(Socket, term_to_binary(UserId)),
