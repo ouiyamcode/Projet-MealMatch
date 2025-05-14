@@ -3,12 +3,56 @@
 -include("bdd.hrl").
 
 start() ->
-    {ok, Socket} = gen_tcp:connect("172.20.10.6", 4040, [binary, {packet, 0}, {active, false}]),
-    io:format("✅ Connecté au serveur TCP~n"),
-    UserId = demander_identifiant(),
-    gen_tcp:send(Socket, term_to_binary(UserId)),
-    boucle(Socket),
-    gen_tcp:close(Socket).
+    %% Découverte du serveur
+    IP = case decouvrir_ip_serveur() of
+             {ok, DiscoveredIP} ->
+                 io:format("✅ Connexion à l'IP détectée : ~p~n", [DiscoveredIP]),
+                 DiscoveredIP;
+             error ->
+                 io:format("🔁 Aucun serveur trouvé, utilisation de localhost~n"),
+                 {127,0,0,1}
+         end,
+
+    %% Connexion TCP
+    case gen_tcp:connect(IP, 4040, [binary, {packet, 0}, {active, false}]) of
+        {ok, Socket} ->
+            io:format("✅ Connecté au serveur TCP à ~p:4040~n", [IP]),
+            UserId = demander_identifiant(),
+            gen_tcp:send(Socket, term_to_binary(UserId)),
+            boucle(Socket),
+            gen_tcp:close(Socket);
+        {error, Reason} ->
+            io:format("❌ Échec de la connexion au serveur : ~p~n", [Reason])
+    end.
+
+decouvrir_ip_serveur() ->
+    %% Ouvrir un socket UDP temporaire
+    {ok, Socket} = gen_udp:open(0, [binary, {broadcast, true}, {active, false}]),
+
+    %% Message de découverte
+    Message = <<"mealmatch_discover">>,
+    BroadcastAddr = {255,255,255,255},
+    Port = 5050,
+
+    %% Envoyer le message en broadcast
+    ok = gen_udp:send(Socket, BroadcastAddr, Port, Message),
+
+    %% Attendre une réponse (1 seconde max)
+    case gen_udp:recv(Socket, 0, 1000) of
+        {ok, {_Host, _Port, <<"server:", IPBin/binary>>}} ->
+            io:format("🔍 Serveur détecté à l’adresse : ~s~n", [IPBin]),
+            IPStr = binary_to_list(IPBin),
+            {ok, parse_ip(IPStr)};
+        {error, timeout} ->
+            io:format("⏱️  Découverte du serveur échouée (timeout)~n"),
+            error
+    end.
+
+%% Convertit "172.16.200.201" → {172,16,200,201}
+parse_ip(Str) ->
+    [A,B,C,D] = [list_to_integer(S) || S <- string:tokens(Str, ".")],
+    {A,B,C,D}.
+
 
 demander_identifiant() ->
     Input = string:trim(io:get_line("Entrez votre identifiant (ex: user1): ")),

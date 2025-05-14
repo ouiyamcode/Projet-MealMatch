@@ -17,6 +17,9 @@ initial_state(UserId) ->
 
 start() ->
   mnesia:start(),
+  %% Lancer le serveur UDP de découverte
+  spawn(fun serveur_discovery:start/0),
+  %% Lancer le serveur TCP
   {ok, ListenSocket} = gen_tcp:listen(4040, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]),
   io:format("✅ Serveur TCP en écoute sur le port 4040...~n"),
   accept(ListenSocket).
