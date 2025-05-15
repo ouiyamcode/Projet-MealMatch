@@ -20,12 +20,18 @@ reset_bdd() ->
   %% Créer les tables si elles n'existent pas
   bdd:create_tables(),
 
-  %% Tables à vider
+  %% ⚠️ Attendre qu'elles soient bien actives (important !)
   Tables = [users, recipes, reviews, user_scores, searches],
   lists:foreach(fun(T) ->
+    case mnesia:wait_for_tables([T], 5000) of
+      ok -> ok;
+      Error -> io:format("⚠️  Timeout table ~p: ~p~n", [T, Error])
+    end
+                end, Tables),
+
+  %% Maintenant vider les tables
+  lists:foreach(fun(T) ->
     case mnesia:clear_table(T) of
-      {aborted, {no_exists, _}} ->
-        io:format("⚠️  Table ~p n'existe pas, création en attente~n", [T]);
       {aborted, Reason} ->
         io:format("⚠️  Erreur clear ~p: ~p~n", [T, Reason]);
       _ ->
@@ -36,4 +42,5 @@ reset_bdd() ->
   %% Réinsertion des recettes
   bdd_data:init(),
   io:format("🔁 Recettes rechargées~n").
+
 
