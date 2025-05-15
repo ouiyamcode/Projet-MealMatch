@@ -17,7 +17,7 @@ lancer_connexion() ->
          end,
 
     %% Connexion TCP
-    case gen_tcp:connect(IP, 4040, [binary, {packet, 0}, {active, false}]) of
+    case gen_tcp:connect(IP, 4040, [binary, {packet, 4}, {active, false}]) of
         {ok, Socket} ->
             io:format("✅ Connecté au serveur TCP à ~p:4040~n", [IP]),
             UserId = demander_identifiant(),
@@ -194,12 +194,7 @@ accueil() ->
         _   -> io:format("❌ Choix invalide.~n"), accueil()
     end.
 
-menu_principal(Socket, UserIdRaw) ->
-    %% Conversion en atom
-    UserId = case is_atom(UserIdRaw) of
-        true -> UserIdRaw;
-        false -> list_to_atom(UserIdRaw)
-    end,
+menu_principal(Socket, UserId) ->
 
     io:format("~n===== Connecté en tant que : ~p =====~n", [UserId]),
     io:format("======== MENU MEALMATCH ========~n"),
@@ -211,16 +206,19 @@ menu_principal(Socket, UserIdRaw) ->
     Choix = string:trim(io:get_line("Votre choix : ")),
 
     case Choix of
-        "1" ->
-            io:format("🚀 Lancement de la recommandation...~n"),
-            gen_tcp:send(Socket, term_to_binary({demarrer_reco})),
-            lancer_recommandation(Socket),
-            menu_principal(Socket, UserId);
-
-        "2" ->
-    io:format("👤 (Simulation) Affichage du profil pour ~p~n", [UserId]),
-    timer:sleep(500),
+      "1" ->
+    io:format("🚀 Lancement de la recommandation...~n"),
+    gen_tcp:send(Socket, term_to_binary({demarrer_reco})),
+    lancer_recommandation(Socket),
+    flush_socket(Socket), %% 👈 Ajout important ici
     menu_principal(Socket, UserId);
+
+   "2" ->
+    gen_tcp:send(Socket, term_to_binary({demande_profil})),
+    recevoir_et_afficher_profil(Socket),
+    menu_principal(Socket, UserId);
+
+
 
 
         "3" ->
@@ -257,7 +255,8 @@ loop_reco(Socket) ->
                     loop_reco(Socket);
                 {fin} ->
                     io:format("✅ Fin de la recommandation.~n"),
-                    flush_socket(Socket);  %% 🔁 nettoyage complet
+                    flush_socket(Socket),
+                    ok;  %% On sort de la reco proprement
                 Msg ->
                     traiter_msg(Socket, Msg),
                     loop_reco(Socket)
@@ -268,10 +267,11 @@ loop_reco(Socket) ->
     end.
 
 
+
 flush_socket(Socket) ->
     case gen_tcp:recv(Socket, 0, 50) of
-        {ok, _Garbage} ->
-            io:format("🧹 Flush : suppression d’un message résiduel~n"),
+        {ok, Garbage} ->
+            io:format("🧹 Flush : ~p~n", [Garbage]),
             flush_socket(Socket);
         {error, timeout} ->
             io:format("✅ Socket propre après flush.~n"),
@@ -279,4 +279,22 @@ flush_socket(Socket) ->
         {error, closed} ->
             io:format("❌ Connexion fermée pendant flush.~n"),
             ok
+    end.
+
+recevoir_et_afficher_profil(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+            io:format("📦 Données brutes reçues : ~p~n", [Bin]),
+            case catch binary_to_term(Bin) of
+                {'EXIT', Reason} ->
+                    io:format("⚠️ Erreur de décodage du profil : ~p~n", [Reason]);
+                {profil, State} ->
+                    afficher_profil(State);
+                Autre ->
+                    io:format("❓ Message inattendu (profil attendu) : ~p~n", [Autre])
+            end;
+        {error, closed} ->
+            io:format("🔌 Connexion fermée~n");
+        {error, Reason} ->
+            io:format("❗ Erreur réception : ~p~n", [Reason])
     end.
