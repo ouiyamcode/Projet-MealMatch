@@ -3,6 +3,9 @@
 -include("bdd.hrl").
 
 start() ->
+    accueil().
+
+lancer_connexion() ->
     %% Découverte du serveur
     IP = case decouvrir_ip_serveur() of
              {ok, DiscoveredIP} ->
@@ -19,11 +22,26 @@ start() ->
             io:format("✅ Connecté au serveur TCP à ~p:4040~n", [IP]),
             UserId = demander_identifiant(),
             gen_tcp:send(Socket, term_to_binary(UserId)),
-            boucle(Socket),
+            %% Attendre réponse du serveur (profil ou demande_allergies)
+            attendre_reception_initiale(Socket),
+            menu_principal(Socket, UserId),
             gen_tcp:close(Socket);
         {error, Reason} ->
             io:format("❌ Échec de la connexion au serveur : ~p~n", [Reason])
     end.
+attendre_reception_initiale(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+            Msg = binary_to_term(Bin),
+            traiter_msg(Socket, Msg);
+        {error, closed} ->
+            io:format("🔌 Connexion fermée par le serveur (init).~n"),
+            halt();
+        {error, Reason} ->
+            io:format("❗ Erreur à la connexion initiale : ~p~n", [Reason]),
+            halt()
+    end.
+
 
 decouvrir_ip_serveur() ->
     %% Ouvrir un socket UDP temporaire
@@ -162,3 +180,103 @@ afficher_profil(State) ->
 
 
 
+accueil() ->
+    io:format("~n===============================~n"),
+    io:format("      🍽️ BIENVENUE DANS       ~n"),
+    io:format("         MEALMATCH             ~n"),
+    io:format("===============================~n"),
+    io:format("~n1. Se connecter~n2. Quitter~n"),
+    Choix = string:trim(io:get_line("Votre choix : ")),
+
+    case Choix of
+        "1" -> lancer_connexion();
+        "2" -> io:format("👋 Au revoir !~n"), halt();
+        _   -> io:format("❌ Choix invalide.~n"), accueil()
+    end.
+
+menu_principal(Socket, UserIdRaw) ->
+    %% Conversion en atom
+    UserId = case is_atom(UserIdRaw) of
+        true -> UserIdRaw;
+        false -> list_to_atom(UserIdRaw)
+    end,
+
+    io:format("~n===== Connecté en tant que : ~p =====~n", [UserId]),
+    io:format("======== MENU MEALMATCH ========~n"),
+    io:format("1. Lancer recommandation~n"),
+    io:format("2. Voir mon profil~n"),
+    io:format("3. Voir mes plats enregistrés~n"),
+    io:format("4. Réinitialiser mon profil~n"),
+    io:format("5. Quitter~n"),
+    Choix = string:trim(io:get_line("Votre choix : ")),
+
+    case Choix of
+        "1" ->
+            io:format("🚀 Lancement de la recommandation...~n"),
+            gen_tcp:send(Socket, term_to_binary({demarrer_reco})),
+            lancer_recommandation(Socket),
+            menu_principal(Socket, UserId);
+
+        "2" ->
+    io:format("👤 (Simulation) Affichage du profil pour ~p~n", [UserId]),
+    timer:sleep(500),
+    menu_principal(Socket, UserId);
+
+
+        "3" ->
+            io:format("📚 Plats enregistrés :~n"),
+            afficher_plats_enregistres(UserId),
+            menu_principal(Socket, UserId);
+
+        "4" ->
+            io:format("♻️ Réinitialisation du profil...~n"),
+            reinitialiser_profil(UserId),
+            menu_principal(Socket, UserId);
+
+        "5" ->
+            io:format("👋 Déconnexion...~n");
+        _ ->
+            io:format("❌ Choix invalide.~n"),
+            menu_principal(Socket, UserId)
+    end.
+
+
+afficher_plats_enregistres(UserId) ->
+    io:format("📦 (Simulation) Plats enregistrés pour ~p~n", [UserId]).
+
+reinitialiser_profil(UserId) ->
+    io:format("🔄 (Simulation) Réinitialisation du profil pour ~p~n", [UserId]).
+lancer_recommandation(Socket) ->
+    loop_reco(Socket).
+loop_reco(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+            case catch binary_to_term(Bin) of
+                {'EXIT', Reason} ->
+                    io:format("⚠️ Erreur de décodage : ~p~n", [Reason]),
+                    loop_reco(Socket);
+                {fin} ->
+                    io:format("✅ Fin de la recommandation.~n"),
+                    flush_socket(Socket);  %% 🔁 nettoyage complet
+                Msg ->
+                    traiter_msg(Socket, Msg),
+                    loop_reco(Socket)
+            end;
+        {error, closed} ->
+            io:format("🔌 Connexion fermée pendant la reco.~n"),
+            ok
+    end.
+
+
+flush_socket(Socket) ->
+    case gen_tcp:recv(Socket, 0, 50) of
+        {ok, _Garbage} ->
+            io:format("🧹 Flush : suppression d’un message résiduel~n"),
+            flush_socket(Socket);
+        {error, timeout} ->
+            io:format("✅ Socket propre après flush.~n"),
+            ok;
+        {error, closed} ->
+            io:format("❌ Connexion fermée pendant flush.~n"),
+            ok
+    end.

@@ -61,30 +61,65 @@ boucle(Socket, State) ->
         {error, closed} ->
           State
       end;
+
     true ->
-      case maps:get(nb_interactions, State) of
-        10 ->
-          Reco = trouver_recommandation(State),
-          gen_tcp:send(Socket, term_to_binary({recommandation, Reco})),
-          timer:sleep(200),
-          sauvegarder_utilisateur(State),
-          timer:sleep(200),
-          gen_tcp:send(Socket, term_to_binary({continuer_choix})),
-          case gen_tcp:recv(Socket, 0) of
-            {ok, Bin2} ->
-              case binary_to_term(Bin2) of
-                continuer ->
-                  boucle(Socket, State#{nb_interactions => 0});
-                _ ->
-                  gen_tcp:send(Socket, term_to_binary({fin})),
-                  ok
-              end;
-            {error, closed} -> ok
+      case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+          case catch binary_to_term(Bin) of
+            {'EXIT', Reason} ->
+              io:format("❌ Erreur decoding message client : ~p~n", [Reason]),
+              boucle(Socket, State);
+
+            {demarrer_reco} ->
+              io:format("🚀 Demande de reco reçue~n"),
+              boucle_reco(Socket, State);
+
+          {demande_profil} ->
+    io:format("📩 Demande de profil reçue~n"),
+    timer:sleep(200),
+    Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
+    Profil = State#{noms_recettes_aimees => Noms},
+    gen_tcp:send(Socket, term_to_binary({profil, Profil})),
+    boucle(Socket, State);
+
+
+            Autre ->
+              io:format("❓ Message inconnu dans boucle: ~p~n", [Autre]),
+              boucle(Socket, State)
           end;
-        _ ->
-          envoyer_plat(Socket, State)
+
+        {error, closed} ->
+          io:format("🔌 Socket fermé côté client~n"),
+          ok
       end
   end.
+
+
+boucle_reco(Socket, State) ->
+  case maps:get(nb_interactions, State) of
+    10 ->
+      Reco = trouver_recommandation(State),
+      gen_tcp:send(Socket, term_to_binary({recommandation, Reco})),
+      timer:sleep(200),
+      sauvegarder_utilisateur(State),
+      timer:sleep(200),
+      gen_tcp:send(Socket, term_to_binary({continuer_choix})),
+      case gen_tcp:recv(Socket, 0) of
+        {ok, Bin2} ->
+          case binary_to_term(Bin2) of
+            continuer ->
+             boucle_reco(Socket, State#{nb_interactions => 0});
+            _ ->
+              gen_tcp:send(Socket, term_to_binary({fin})),
+               boucle(Socket, State) 
+          end;
+        {error, closed} -> ok
+      end;
+    _ ->
+      envoyer_plat(Socket, State)
+  end.
+
+
 
 envoyer_plat(Socket, State) ->
   Tried = [R#recipes.recipe_id || R <- maps:get(plats_tries, State)],
@@ -121,13 +156,24 @@ envoyer_plat(Socket, State) ->
 recevoir_reaction(Socket, State, Plat) ->
   case gen_tcp:recv(Socket, 0) of
     {ok, Bin} ->
-      {reaction, Rep} = binary_to_term(Bin),
-      Nouveau = maj_etat(State, Plat, Rep),
-      sauvegarder_utilisateur(Nouveau), %% <-- AJOUT ICI
-      boucle(Socket, Nouveau);
+      case catch binary_to_term(Bin) of
+        {'EXIT', Reason} ->
+          io:format("⚠️ Erreur décodage reaction : ~p~n", [Reason]),
+          boucle(Socket, State);  %% retourne au menu
+        {reaction, Rep} ->
+          io:format("📥 Réaction reçue : ~p~n", [Rep]),
+          Nouveau = maj_etat(State, Plat, Rep),
+          sauvegarder_utilisateur(Nouveau),
+          boucle_reco(Socket, Nouveau);  %% 🟢 on reste dans la boucle reco
+        Autre ->
+          io:format("❓ Message inattendu dans recevoir_reaction : ~p~n", [Autre]),
+          boucle(Socket, State)
+      end;
     {error, closed} ->
+      io:format("🔌 Client déconnecté pendant réaction.~n"),
       ok
   end.
+
 
 %% === Chargement utilisateur ===
 charger_ou_initialiser_utilisateur(UserId) ->
