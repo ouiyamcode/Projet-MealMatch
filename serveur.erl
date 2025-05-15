@@ -34,19 +34,30 @@ handle_client(Socket) ->
     {ok, Bin} ->
       UserId = binary_to_term(Bin),
       State = charger_ou_initialiser_utilisateur(UserId),
+
+      %% ✅ Sauvegarder immédiatement si nouveau
+      case maps:get(deja_connecte, State) of
+        false ->
+          sauvegarder_utilisateur(State);  %% Ajout ici sinon rien n’est en BDD
+        true ->
+          ok
+      end,
+
+      %% Ensuite on répond normalement
       case maps:get(deja_connecte, State) of
         true ->
           Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
-          io:format("📦 Envoi du profil : ~p~n", [State#{noms_recettes_aimees => Noms}]),
           gen_tcp:send(Socket, term_to_binary({profil, State#{noms_recettes_aimees => Noms}})),
           boucle(Socket, State);
         false ->
           gen_tcp:send(Socket, term_to_binary({demande_allergies})),
           boucle(Socket, State)
       end;
+
     {error, closed} ->
       ok
   end.
+
 
 
 boucle(Socket, State) ->
@@ -80,7 +91,16 @@ boucle(Socket, State) ->
     Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
     Profil = State#{noms_recettes_aimees => Noms},
     gen_tcp:send(Socket, term_to_binary({profil, Profil})),
+    boucle(Socket, State);  %% <-- ICI !
+
+{demande_plats_enregistres} ->
+    io:format("📦 Demande de plats enregistrés reçue~n"),
+    Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
+    gen_tcp:send(Socket, term_to_binary({plats_enregistres, Noms})),
     boucle(Socket, State);
+
+
+
 
 
             Autre ->

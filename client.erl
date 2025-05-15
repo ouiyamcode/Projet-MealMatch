@@ -104,7 +104,11 @@ traiter_msg(Socket, {demande_allergies}) ->
     io:format("📥 Reçu : demande_allergies~n"),
     Allergies = demander_allergies(),
     io:format("📤 Envoi : allergies = ~p~n", [Allergies]),
-    gen_tcp:send(Socket, term_to_binary({allergies, Allergies}));
+    gen_tcp:send(Socket, term_to_binary({allergies, Allergies})),
+    
+    %% 💡 Lire la réponse qui suit (profil)
+    recevoir_et_afficher_profil(Socket);
+
 
 traiter_msg(Socket, {plat, Plat}) ->
     io:format("📥 Reçu : plat = ~p~n", [Plat#recipes.nom]),
@@ -221,10 +225,11 @@ menu_principal(Socket, UserId) ->
 
 
 
-        "3" ->
-            io:format("📚 Plats enregistrés :~n"),
-            afficher_plats_enregistres(UserId),
-            menu_principal(Socket, UserId);
+       "3" ->
+    gen_tcp:send(Socket, term_to_binary({demande_plats_enregistres})),
+    recevoir_et_afficher_plats(Socket),
+    menu_principal(Socket, UserId);
+
 
         "4" ->
             io:format("♻️ Réinitialisation du profil...~n"),
@@ -239,8 +244,26 @@ menu_principal(Socket, UserId) ->
     end.
 
 
-afficher_plats_enregistres(UserId) ->
-    io:format("📦 (Simulation) Plats enregistrés pour ~p~n", [UserId]).
+recevoir_et_afficher_plats(Socket) ->
+    case gen_tcp:recv(Socket, 0) of
+        {ok, Bin} ->
+            case catch binary_to_term(Bin) of
+                {'EXIT', Reason} ->
+                    io:format("⚠️ Erreur de décodage (plats enregistrés) : ~p~n", [Reason]);
+                {plats_enregistres, []} ->
+                    io:format("📦 Aucun plat enregistré pour le moment.~n");
+                {plats_enregistres, Noms} ->
+                    io:format("📚 Vos plats enregistrés :~n"),
+                    lists:foreach(fun(Nom) -> io:format("  • ~s~n", [Nom]) end, Noms);
+                Autre ->
+                    io:format("❓ Message inattendu : ~p~n", [Autre])
+            end;
+        {error, closed} ->
+            io:format("🔌 Connexion fermée~n");
+        {error, Reason} ->
+            io:format("❗ Erreur réception : ~p~n", [Reason])
+    end.
+
 
 reinitialiser_profil(UserId) ->
     io:format("🔄 (Simulation) Réinitialisation du profil pour ~p~n", [UserId]).
