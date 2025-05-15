@@ -37,6 +37,7 @@ handle_client(Socket) ->
       case maps:get(deja_connecte, State) of
         true ->
           Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
+          io:format("📦 Envoi du profil : ~p~n", [State#{noms_recettes_aimees => Noms}]),
           gen_tcp:send(Socket, term_to_binary({profil, State#{noms_recettes_aimees => Noms}})),
           boucle(Socket, State);
         false ->

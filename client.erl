@@ -77,43 +77,50 @@ boucle(Socket) ->
             ok
     end.
 
-traiter_msg(Socket, {profil, State}) ->
-    afficher_profil(State);
 
 traiter_msg(Socket, {demande_allergies}) ->
+    io:format("📥 Reçu : demande_allergies~n"),
     Allergies = demander_allergies(),
+    io:format("📤 Envoi : allergies = ~p~n", [Allergies]),
     gen_tcp:send(Socket, term_to_binary({allergies, Allergies}));
 
 traiter_msg(Socket, {plat, Plat}) ->
+    io:format("📥 Reçu : plat = ~p~n", [Plat#recipes.nom]),
     afficher_plat(Plat),
     Reponse = demander_reaction(),
+    io:format("📤 Envoi : reaction = ~p~n", [Reponse]),
     gen_tcp:send(Socket, term_to_binary({reaction, Reponse}));
 
 traiter_msg(_, {recommandation, none}) ->
+    io:format("📥 Reçu : recommandation = none~n"),
     io:format("🔍 Aucune recommandation disponible.~n");
 
 traiter_msg(_, {recommandation, #recipes{nom = Nom, score = Score}}) ->
+    io:format("📥 Reçu : recommandation = ~s~n", [Nom]),
     io:format("🎯 Recommandation finale : ~s avec score ~p~n", [Nom, Score]);
 
 traiter_msg(_, {alerte_5, N}) ->
+    io:format("📥 Reçu : alerte_5 = ~p plats restants~n", [N]),
     io:format("⚠️  Attention : il ne reste que ~p plats disponibles.~n", [N]);
 
 traiter_msg(Socket, {continuer_choix}) ->
+    io:format("📥 Reçu : continuer_choix~n"),
     Reponse = io:get_line("Souhaitez-vous continuer ? (o/n): "),
     Clean = string:trim(string:lowercase(Reponse)),
     Msg = case Clean of
               "o" -> continuer;
               _ -> stop
           end,
+    io:format("📤 Envoi : réponse continuer = ~p~n", [Msg]),
     gen_tcp:send(Socket, term_to_binary(Msg));
 
 traiter_msg(_, {fin}) ->
+    io:format("📥 Reçu : fin~n"),
     io:format("🛑 Session terminée.~n"),
     halt();
 
 traiter_msg(_, Autre) ->
     io:format("❓ Message inconnu : ~p~n", [Autre]).
-
 
 
 demander_allergies() ->
