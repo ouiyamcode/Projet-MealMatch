@@ -78,6 +78,10 @@ boucle(Socket) ->
     end.
 
 
+traiter_msg(_Socket, {profil, State}) ->
+    io:format("📥 Reçu : profil utilisateur~n"),
+    afficher_profil(State);
+
 traiter_msg(Socket, {demande_allergies}) ->
     io:format("📥 Reçu : demande_allergies~n"),
     Allergies = demander_allergies(),
@@ -121,6 +125,7 @@ traiter_msg(_, {fin}) ->
 
 traiter_msg(_, Autre) ->
     io:format("❓ Message inconnu : ~p~n", [Autre]).
+
 
 
 demander_allergies() ->

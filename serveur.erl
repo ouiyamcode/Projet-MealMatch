@@ -66,7 +66,9 @@ boucle(Socket, State) ->
         10 ->
           Reco = trouver_recommandation(State),
           gen_tcp:send(Socket, term_to_binary({recommandation, Reco})),
+          timer:sleep(200),
           sauvegarder_utilisateur(State),
+          timer:sleep(200),
           gen_tcp:send(Socket, term_to_binary({continuer_choix})),
           case gen_tcp:recv(Socket, 0) of
             {ok, Bin2} ->
@@ -108,6 +110,7 @@ envoyer_plat(Socket, State) ->
           rand:seed(exsplus, {erlang:monotonic_time(), erlang:unique_integer(), erlang:phash2(self())}),
           Index = rand:uniform(length(Recettes)),
           Plat = lists:nth(Index, Recettes),
+          timer:sleep(200),
           gen_tcp:send(Socket, term_to_binary({plat, Plat})),
           recevoir_reaction(Socket, State, Plat)
       end
