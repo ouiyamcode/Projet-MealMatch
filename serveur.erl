@@ -62,51 +62,66 @@ handle_client(Socket) ->
 
 boucle(Socket, State) ->
   case maps:get(deja_connecte, State) of
-    false ->
-      case gen_tcp:recv(Socket, 0) of
-        {ok, Bin} ->
-          {allergies, Liste} = binary_to_term(Bin),
+  false ->
+  case gen_tcp:recv(Socket, 0) of
+    {ok, Bin} ->
+      case catch binary_to_term(Bin) of
+        {'EXIT', Reason} ->
+          io:format("❌ Erreur decoding initial (non connecté) : ~p~n", [Reason]),
+          boucle(Socket, State);
+        {allergies, Liste} ->
           NewState = State#{allergies => Liste, deja_connecte => true},
+          sauvegarder_utilisateur(NewState),
           gen_tcp:send(Socket, term_to_binary({profil, NewState})),
           boucle(Socket, NewState);
-        {error, closed} ->
-          State
+        Autre ->
+          io:format("❓ Message inattendu en phase init : ~p~n", [Autre]),
+          boucle(Socket, State)
       end;
+    {error, closed} ->
+      State
+  end;
+
 
     true ->
       case gen_tcp:recv(Socket, 0) of
         {ok, Bin} ->
-          case catch binary_to_term(Bin) of
-            {'EXIT', Reason} ->
-              io:format("❌ Erreur decoding message client : ~p~n", [Reason]),
-              boucle(Socket, State);
+         case catch binary_to_term(Bin) of
+  {'EXIT', Reason} ->
+    io:format("❌ Erreur decoding message client : ~p~n", [Reason]),
+    boucle(Socket, State);
 
-            {demarrer_reco} ->
-              io:format("🚀 Demande de reco reçue~n"),
-              boucle_reco(Socket, State);
+  {demarrer_reco} ->
+    io:format("🚀 Demande de reco reçue~n"),
+    boucle_reco(Socket, State);
 
-          {demande_profil} ->
+  {demande_profil} ->
     io:format("📩 Demande de profil reçue~n"),
     timer:sleep(200),
     Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
     Profil = State#{noms_recettes_aimees => Noms},
     gen_tcp:send(Socket, term_to_binary({profil, Profil})),
-    boucle(Socket, State);  %% <-- ICI !
+    boucle(Socket, State);
 
-{demande_plats_enregistres} ->
+  {demande_plats_enregistres} ->
     io:format("📦 Demande de plats enregistrés reçue~n"),
     Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
     gen_tcp:send(Socket, term_to_binary({plats_enregistres, Noms})),
     boucle(Socket, State);
 
+  {reinitialiser_profil} ->
+    io:format("🔄 Réinitialisation du profil utilisateur ~p~n", [maps:get(id, State)]),
+    NewState0 = initial_state(maps:get(id, State)),
+    NewState = NewState0#{deja_connecte => true},
+    sauvegarder_utilisateur(NewState),
+    gen_tcp:send(Socket, term_to_binary({profil, NewState})),
+    boucle(Socket, NewState);
 
+  Autre ->
+    io:format("❓ Message inconnu dans boucle: ~p~n", [Autre]),
+    boucle(Socket, State)
+end;
 
-
-
-            Autre ->
-              io:format("❓ Message inconnu dans boucle: ~p~n", [Autre]),
-              boucle(Socket, State)
-          end;
 
         {error, closed} ->
           io:format("🔌 Socket fermé côté client~n"),

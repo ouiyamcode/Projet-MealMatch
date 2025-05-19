@@ -231,10 +231,12 @@ menu_principal(Socket, UserId) ->
     menu_principal(Socket, UserId);
 
 
-        "4" ->
-            io:format("♻️ Réinitialisation du profil...~n"),
-            reinitialiser_profil(UserId),
-            menu_principal(Socket, UserId);
+       "4" ->
+    io:format("♻️ Réinitialisation du profil...~n"),
+    gen_tcp:send(Socket, term_to_binary({reinitialiser_profil})),
+    recevoir_et_afficher_profil(Socket),
+    menu_principal(Socket, UserId);
+
 
         "5" ->
             io:format("👋 Déconnexion...~n");
@@ -265,8 +267,7 @@ recevoir_et_afficher_plats(Socket) ->
     end.
 
 
-reinitialiser_profil(UserId) ->
-    io:format("🔄 (Simulation) Réinitialisation du profil pour ~p~n", [UserId]).
+
 lancer_recommandation(Socket) ->
     loop_reco(Socket).
 loop_reco(Socket) ->
