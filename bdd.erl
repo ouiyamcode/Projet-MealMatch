@@ -1,7 +1,6 @@
 -module(bdd).
 -compile([export_all]).
 
-%% Records
 -record(users, {
   user_id,
   mdp,
@@ -53,7 +52,6 @@
   commentaire
 }).
 
-%% Création des tables individuellement (pas dynamiquement)
 create_tables() ->
   mnesia:create_table(users, [
     {attributes, record_info(fields, users)},
@@ -86,7 +84,6 @@ create_tables() ->
     {disc_copies, [node()]}
   ]).
 
-%% Fonctions utilitaires
 insert(Record) ->
   mnesia:transaction(fun() -> mnesia:write(Record) end).
 

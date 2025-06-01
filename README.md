@@ -1,158 +1,144 @@
-# 🍽️ MealMatch
+# 🍽️ MealMatch – Guide utilisateur final
 
-**MealMatch** est une application interactive écrite en **Erlang** qui propose des plats à un utilisateur, apprend de ses préférences, et lui recommande un plat personnalisé à la fin de la session.
-
----
-
-## 🚀 Fonctionnalités
-
-* Interaction en ligne de commande
-* Gestion des préférences utilisateur (`aime`, `aime_pas`, `garder`)
-* Système de recommandation basé sur des scores gustatifs (vecteurs)
-* Persistance des données via **Mnesia**
-* Affichage final des plats gardés
+**MealMatch** est une application interactive écrite en **Erlang**, qui recommande des plats en fonction de vos goûts. Elle apprend de vos réactions (j'aime, j'aime pas, garder) et propose un plat personnalisé à la fin.
 
 ---
 
 ## ✅ Prérequis
 
-* **Erlang/OTP ≥ 22**
-
-    * Recommandé : OTP 24+
-    * Testé sur Erlang 24 et 25
-* Git
-* Terminal
+- **Erlang/OTP ≥ 24** (testé avec OTP 24 et 25)
+- Terminal sur Linux/macOS ou Windows (avec WSL conseillé)
+- Tous les fichiers du projet fournis (pas besoin de Git)
 
 ---
 
-## 📦 Installation
+## 📦 Installation (serveur)
 
-### 1. Cloner le projet
+### 1. Démarrer Erlang dans le dossier du projet
 
 ```bash
-git clone <url_du_repo>
 cd MealMatch
-```
-
-### 2. Lancer Erlang
-
-Dans le dossier du projet :
-
-```bash
 erl
 ```
 
----
-
-## 💪 Première initialisation (une seule fois)
-
-### 1. Créer le schéma Mnesia
+### 2. Initialiser Mnesia (à faire une seule fois)
 
 ```erlang
 mnesia:create_schema([node()]).
-```
-
-### 2. Démarrer Mnesia
-
-```erlang
 mnesia:start().
-```
-
-### 3. Compiler les modules
-
-```erlang
 c(bdd).
 c(bdd_data).
+c(bdd_tools).
 c(serveur).
+c(serveur_discovery).
+c(client).
 ```
 
-### 4. Créer les tables Mnesia
+### 3. Créer les tables et insérer les recettes
 
+Option 1 : à la main
 ```erlang
 bdd:create_tables().
-```
-
-### 5. Insérer les recettes de base
-
-```erlang
 bdd_data:init().
 ```
 
-Tu verras :
-
+Option 2 : tout en un avec `bdd_tools`
+```erlang
+bdd_tools:init_bdd().
 ```
-Recettes insérées avec succès !
-```
 
----
+Tu devrais voir : 📁 Tables créées et 🍽️  Recettes insérées.
 
-## 👤 Utilisation
-
-### Démarrer l'application :
+### 4. Lancer le serveur
 
 ```erlang
 serveur:start().
 ```
 
-### Fonctionnement :
+Cela démarre :
+- un serveur TCP (port 4040)
+- un serveur UDP (port 5050) pour découverte automatique
 
-* On te demande tes allergies (`gluten, arachides`, etc.)
-* Tu reçois un plat à chaque itération
-* Tu peux répondre par :
-
-    * `"aime"` → ajoute ce plat aux scores positifs
-    * `"aime_pas"` → ajoute ce plat aux scores négatifs
-    * `"garder"` → ajoute ce plat à la liste des favoris
-
-L’application s’arrête automatiquement :
-
-* Après **10 interactions**
-* Ou lorsque **tous les plats ont été vus**
+Le serveur est prêt à recevoir des clients.
 
 ---
 
-## 📌 Fin de session
+## 👤 Utilisation (client)
 
-* Le serveur calcule une recommandation (en comparant les scores)
-* Il affiche le plat recommandé (si possible)
-* Il sauvegarde l'utilisateur dans la base
-* Il affiche les plats que tu as **gardés** (`garder`)
+Chaque utilisateur lance **le client sur sa propre machine** (si possible dans un terminal séparé).
 
----
+### 1. Compiler et lancer le client
 
-## 💡 Tests manuels
-
-### Voir un utilisateur enregistré :
+Dans le dossier du projet, lancer Erlang puis :
 
 ```erlang
-bdd:get_user(<<"user1">>).
+c(client).
+client:start().
 ```
 
-### Voir ses recettes aimées :
+### 2. Navigation utilisateur
 
-```erlang
-{atomic, {ok, U}} = bdd:get_user(<<"user1">>),
-U#users.recettes_aimees.
-```
+Le client propose :
+- Entrer un identifiant (ex: `user42`)
+- Répondre à une éventuelle **demande d’allergies** (ex: `gluten, lactose`)
+- Accéder à un **menu principal** avec options :
+  - Lancer la recommandation
+  - Voir son profil
+  - Voir ses plats enregistrés
+  - Réinitialiser son profil
+  - Quitter
 
 ---
 
-## 🔄 Réinitialisation (optionnel)
+## 🔄 Session de recommandation
 
-### Réinitialiser la base :
+1. Tu reçois des plats proposés un à un
+2. À chaque plat, tu peux répondre :
+   - **Entrée** → j'aime
+   - **p** → j'aime pas
+   - **g** → garder
 
+Après **10 interactions**, une recommandation finale te sera proposée.
+
+Tu peux ensuite choisir de continuer ou arrêter.
+
+---
+
+## 📌 Sauvegarde automatique
+
+Chaque utilisateur est enregistré automatiquement :
+- Allergies
+- Recettes aimées ou gardées
+- Score global et préférences
+
+À la prochaine connexion, tu retrouves ton profil.
+
+---
+
+## 💥 Problèmes fréquents
+
+- 🔐 **Connexion échoue ?** Vérifie que le **pare-feu** autorise les ports `4040 (TCP)` et `5050 (UDP)`
+- 🌐 **Pas de découverte automatique ?** Entrez l'IP du serveur manuellement dans le code si nécessaire
+- ❗ **Plats épuisés ?** Tu verras un message d'alerte et la recommandation se lancera automatiquement
+
+---
+
+## 🧪 Réinitialiser la base (serveur uniquement)
+
+### Option simple avec `bdd_tools`
+```erlang
+bdd_tools:reset_bdd().
+```
+
+### Option manuelle :
 ```erlang
 mnesia:stop().
 ```
-
-Puis en ligne de commande Linux/macOS :
-
+Puis en terminal :
 ```bash
 rm -rf Mnesia*
 ```
-
 Et relancer :
-
 ```erlang
 mnesia:create_schema([node()]).
 mnesia:start().
@@ -162,27 +148,22 @@ bdd_data:init().
 
 ---
 
-## 📚 Structure du projet
+## 📁 Structure des fichiers
 
 ```
 MealMatch/
 │
-├── bdd.erl         % Déclaration des tables et accès Mnesia
-├── bdd_data.erl    % Données de test : recettes à insérer
-├── serveur.erl     % Logique principale (interaction, état, recommandation)
-├── bdd.hrl         % Records partagés (si utilisé)
-└── README.md       % Ce fichier
+├── bdd.erl              % Gestion base de données Mnesia
+├── bdd_data.erl         % Insertion recettes
+├── bdd_tools.erl        % Utilitaires pour init/reset BDD
+├── serveur.erl          % Logique serveur + matching
+├── serveur_discovery.erl % Découverte UDP
+├── client.erl           % Interface ligne de commande utilisateur
+├── bdd.hrl              % Définition des records
 ```
 
 ---
 
-## 🙋 Support
+## 🌿 Bon appétit !
 
-En cas de problème, bug ou suggestion :
-
-* Ouvrir une issue si le projet est sur GitHub/GitLab
-* Contacter le développeur via le canal de communication du projet
-
----
-
-Bon appétit avec MealMatch ! 😋
+MealMatch vous aide à décider quoi manger intelligemment 😋

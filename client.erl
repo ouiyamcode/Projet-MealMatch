@@ -6,7 +6,6 @@ start() ->
     accueil().
 
 lancer_connexion() ->
-    %% Découverte du serveur
     IP = case decouvrir_ip_serveur() of
              {ok, DiscoveredIP} ->
                  io:format("✅ Connexion à l'IP détectée : ~p~n", [DiscoveredIP]),
@@ -16,7 +15,6 @@ lancer_connexion() ->
                  {127,0,0,1}
          end,
 
-    %% Connexion TCP
     case gen_tcp:connect(IP, 4040, [binary, {packet, 4}, {active, false}]) of
         {ok, Socket} ->
             io:format("✅ Connecté au serveur TCP à ~p:4040~n", [IP]),
@@ -44,18 +42,14 @@ attendre_reception_initiale(Socket) ->
 
 
 decouvrir_ip_serveur() ->
-    %% Ouvrir un socket UDP temporaire
     {ok, Socket} = gen_udp:open(0, [binary, {broadcast, true}, {active, false}]),
 
-    %% Message de découverte
     Message = <<"mealmatch_discover">>,
     BroadcastAddr = {255,255,255,255},
     Port = 5050,
 
-    %% Envoyer le message en broadcast
     ok = gen_udp:send(Socket, BroadcastAddr, Port, Message),
 
-    %% Attendre une réponse (1 seconde max)
     case gen_udp:recv(Socket, 0, 1000) of
         {ok, {_Host, _Port, <<"server:", IPBin/binary>>}} ->
             io:format("🔍 Serveur détecté à l’adresse : ~s~n", [IPBin]),
@@ -66,7 +60,6 @@ decouvrir_ip_serveur() ->
             error
     end.
 
-%% Convertit "172.16.200.201" → {172,16,200,201}
 parse_ip(Str) ->
     [A,B,C,D] = [list_to_integer(S) || S <- string:tokens(Str, ".")],
     {A,B,C,D}.
@@ -105,8 +98,7 @@ traiter_msg(Socket, {demande_allergies}) ->
     Allergies = demander_allergies(),
     io:format("📤 Envoi : allergies = ~p~n", [Allergies]),
     gen_tcp:send(Socket, term_to_binary({allergies, Allergies})),
-    
-    %% 💡 Lire la réponse qui suit (profil)
+
     recevoir_et_afficher_profil(Socket);
 
 
@@ -214,7 +206,7 @@ menu_principal(Socket, UserId) ->
     io:format("🚀 Lancement de la recommandation...~n"),
     gen_tcp:send(Socket, term_to_binary({demarrer_reco})),
     lancer_recommandation(Socket),
-    flush_socket(Socket), %% 👈 Ajout important ici
+    flush_socket(Socket),
     menu_principal(Socket, UserId);
 
    "2" ->
@@ -280,7 +272,7 @@ loop_reco(Socket) ->
                 {fin} ->
                     io:format("✅ Fin de la recommandation.~n"),
                     flush_socket(Socket),
-                    ok;  %% On sort de la reco proprement
+                    ok;
                 Msg ->
                     traiter_msg(Socket, Msg),
                     loop_reco(Socket)

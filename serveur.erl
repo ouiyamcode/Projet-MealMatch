@@ -2,7 +2,6 @@
 -export([start/0]).
 -include("bdd.hrl").
 
-%% === État initial ===
 initial_state(UserId) ->
   #{id => UserId,
     allergies => [],
@@ -17,9 +16,7 @@ initial_state(UserId) ->
 
 start() ->
   mnesia:start(),
-  %% Lancer le serveur UDP de découverte
   spawn(fun serveur_discovery:start/0),
-  %% Lancer le serveur TCP
   {ok, ListenSocket} = gen_tcp:listen(4040, [binary, {packet, 4}, {active, false}, {reuseaddr, true}]),
   io:format("✅ Serveur TCP en écoute sur le port 4040...~n"),
   accept(ListenSocket).
@@ -34,16 +31,12 @@ handle_client(Socket) ->
     {ok, Bin} ->
       UserId = binary_to_term(Bin),
       State = charger_ou_initialiser_utilisateur(UserId),
-
-      %% ✅ Sauvegarder immédiatement si nouveau
       case maps:get(deja_connecte, State) of
         false ->
-          sauvegarder_utilisateur(State);  %% Ajout ici sinon rien n’est en BDD
+          sauvegarder_utilisateur(State);
         true ->
           ok
       end,
-
-      %% Ensuite on répond normalement
       case maps:get(deja_connecte, State) of
         true ->
           Noms = recuperer_noms_recettes(maps:get(recettes_aimees, State)),
@@ -194,12 +187,12 @@ recevoir_reaction(Socket, State, Plat) ->
       case catch binary_to_term(Bin) of
         {'EXIT', Reason} ->
           io:format("⚠️ Erreur décodage reaction : ~p~n", [Reason]),
-          boucle(Socket, State);  %% retourne au menu
+          boucle(Socket, State);
         {reaction, Rep} ->
           io:format("📥 Réaction reçue : ~p~n", [Rep]),
           Nouveau = maj_etat(State, Plat, Rep),
           sauvegarder_utilisateur(Nouveau),
-          boucle_reco(Socket, Nouveau);  %% 🟢 on reste dans la boucle reco
+          boucle_reco(Socket, Nouveau);
         Autre ->
           io:format("❓ Message inattendu dans recevoir_reaction : ~p~n", [Autre]),
           boucle(Socket, State)
@@ -209,8 +202,6 @@ recevoir_reaction(Socket, State, Plat) ->
       ok
   end.
 
-
-%% === Chargement utilisateur ===
 charger_ou_initialiser_utilisateur(UserId) ->
   F = fun() ->
     case mnesia:read({users, UserId}) of
@@ -225,7 +216,7 @@ charger_ou_initialiser_utilisateur(UserId) ->
           deja_connecte => true,
           plats_tries => [],
           alerte_faite => false,
-          recettes_aimees => User#users.recettes_aimees %% ✅ on garde ce champ
+          recettes_aimees => User#users.recettes_aimees
         };
       [] ->
         initial_state(UserId)
@@ -234,7 +225,6 @@ charger_ou_initialiser_utilisateur(UserId) ->
   {atomic, Res} = mnesia:transaction(F),
   Res.
 
-%% === BDD recettes ===
 charger_recettes() ->
   {atomic, Recs} = mnesia:transaction(
     fun() ->
@@ -248,7 +238,6 @@ charger_recettes() ->
 contient_allergene(#recipes{ingredients = I}, Allergies) ->
   lists:any(fun(A) -> lists:member(A, I) end, Allergies).
 
-%% === Réaction ===
 maj_etat(State, Plat, Reponse) ->
   Score = Plat#recipes.score,
   Id = Plat#recipes.recipe_id,
@@ -272,7 +261,6 @@ maj_etat(State, Plat, Reponse) ->
     _ -> State
   end.
 
-%% === Sauvegarde utilisateur ===
 sauvegarder_utilisateur(State) ->
   io:format("💾 Sauvegarde utilisateur ~p, aimees = ~p~n", [maps:get(id, State), maps:get(recettes_aimees, State)]),
   Id = maps:get(id, State),
@@ -288,7 +276,6 @@ sauvegarder_utilisateur(State) ->
   },
   bdd:insert_user(User).
 
-%% === Recommandation ===
 trouver_recommandation(State) ->
   Pos = moyenne_ponderee(maps:get(scores_pos, State), maps:get(scores_neutres, State)),
   Neg = moyenne_vecteurs(maps:get(scores_neg, State)),
@@ -310,7 +297,6 @@ trouver_recommandation(State) ->
              end, Candidats)
   end.
 
-%% === max_by utilitaire ===
 max_by(F, [H|T]) -> max_by(F, T, H, F(H)).
 max_by(_, [], Best, _) -> Best;
 max_by(F, [H|T], Best, ValBest) ->
@@ -320,7 +306,6 @@ max_by(F, [H|T], Best, ValBest) ->
     false -> max_by(F, T, Best, ValBest)
   end.
 
-%% === Utilitaires math ===
 calculer_score_global(State) ->
   length(maps:get(recettes_aimees, State)).
 

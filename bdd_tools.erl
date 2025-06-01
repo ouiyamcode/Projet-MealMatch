@@ -5,11 +5,9 @@ init_bdd() ->
   mnesia:start(),
   io:format("📦 Mnesia démarrée~n"),
 
-  %% Créer les tables si elles n'existent pas
   bdd:create_tables(),
   io:format("📁 Tables créées si besoin~n"),
 
-  %% Insérer les données recettes
   bdd_data:init(),
   io:format("🍽️  Recettes insérées depuis bdd_data~n").
 
@@ -17,10 +15,8 @@ init_bdd() ->
 reset_bdd() ->
   mnesia:start(),
 
-  %% Créer les tables si elles n'existent pas
   bdd:create_tables(),
 
-  %% ⚠️ Attendre qu'elles soient bien actives (important !)
   Tables = [users, recipes, reviews, user_scores, searches],
   lists:foreach(fun(T) ->
     case mnesia:wait_for_tables([T], 5000) of
@@ -29,7 +25,6 @@ reset_bdd() ->
     end
                 end, Tables),
 
-  %% Maintenant vider les tables
   lists:foreach(fun(T) ->
     case mnesia:clear_table(T) of
       {aborted, Reason} ->
